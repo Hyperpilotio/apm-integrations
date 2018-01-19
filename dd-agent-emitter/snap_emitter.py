@@ -1,25 +1,19 @@
-"""
-    A custom emitter to send metrics to snap streaming collector.
-"""
-# import requests
 import socket
 import sys
 
 
-class SnapEmitter(object):
+class Emitter(object):
     """
-    The SnapEmitter class is a daemon run in an independent thread.
-
-    Custom emitter for DataDog to submit metrics to the Snap proxy.
+    Custom emitter for DataDog to submit metrics to the Node agent proxy.
     This emitter requires that the configuration have 2 additional items:
-       snap_host  the name/ip of the Snap proxy host
+       na_host  the name/ip of the hyperpilot/node_agent host
                 (required: emitter will do nothing if not set)
-       snap_port  the port that the proxy is listening on in Snap format
+       na_port  the port that the proxy is listening on in Node agent format
                 (optional: default is 2878)
-       snap_dry_run (yes|true) means "dry run" (just print the data and don't
+       na_dry_run (yes|true) means "dry run" (just print the data and don't
                 actually send
                 (optional: default is no)
-       wf_meta_tags comma separated list of tags to extract as point tags
+       na_meta_tags comma separated list of tags to extract as point tags
                 from meta dictionary in collector JSON
                 (optional: default is empty list)
     From the custom emitter documentation in datadog.conf:
@@ -36,34 +30,35 @@ class SnapEmitter(object):
         self.meta_tags = []
 
     # pylint: disable=too-many-branches
-    def __call__(self, payload, logger, agent_config):
+    def __call__(self, message, log, agent_config):
         """
         __call__ is called by DataDog when executing the custom emitter(s)
-        Args:
-            payload (dict): is a dictionary as collected by the agent
-            logger  (object): is a logging.Logger object
-            config  (dict): is a dictionary of all the configuration values, in case you need them
+        Arguments:
+        message - a JSON object representing the message sent to datadoghq
+        log - the log object
+        agent_config - the agent configuration object
         """
 
         # configuration
-        if 'snap_host' not in agent_config:
-            logger.error(
-                'Agent config missing snap_host (the Snap proxy host)')
+        if 'na_host' not in agent_config:
+            log.error(
+                'Agent config missing na_host (the Node agent proxy host)')
             return
-        proxy_host = agent_config['snap_host']
-        if 'snap_port' in agent_config:
-            proxy_port = int(agent_config['snap_port'])
+        proxy_host = agent_config['na_host']
+        if 'na_port' in agent_config:
+            proxy_port = int(agent_config['na_port'])
         else:
             proxy_port = 2878
-        self.proxy_dry_run = ('snap_dry_run' in agent_config and
-                              (agent_config['snap_dry_run'] == 'yes' or
-                               agent_config['snap_dry_run'] == 'true'))
-        if logger:
-            logger.debug('Snap Emitter %s:%d ', proxy_host, proxy_port)
+        self.proxy_dry_run = ('na_dry_run' in agent_config
+                              and (agent_config['na_dry_run'] == 'yes'
+                                   or agent_config['na_dry_run'] == 'true'))
+        if log:
+            log.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
 
-        if 'wf_meta_tags' in agent_config:
-            self.meta_tags = [tag.strip() for tag in
-                              agent_config['wf_meta_tags'].split(',')]
+        if 'na_meta_tags' in agent_config:
+            self.meta_tags = [
+                tag.strip() for tag in agent_config['na_meta_tags'].split(',')
+            ]
 
         try:
             # connect to the proxy
@@ -74,10 +69,10 @@ class SnapEmitter(object):
                     self.sock.connect((proxy_host, proxy_port))
                 except socket.error as sock_err:
                     err_str = (
-                        'Snap Emitter: Unable to connect %s:%d: %s' %
+                        'Node agent Emitter: Unable to connect %s:%d: %s' %
                         (proxy_host, proxy_port, str(sock_err)))
-                    if logger:
-                        logger.error(err_str)
+                    if log:
+                        log.error(err_str)
                     else:
                         print err_str
                     return
@@ -85,19 +80,19 @@ class SnapEmitter(object):
                 self.sock = None
 
             # parse the message
-            if 'series' in payload:
-                self.parse_dogstatsd(payload)
+            if 'series' in message:
+                self.parse_dogstatsd(message)
 
             else:
-                self.parse_host_tags(payload)
-                self.parse_meta_tags(payload)
-                self.parse_collector(payload)
+                self.parse_host_tags(message)
+                self.parse_meta_tags(message)
+                self.parse_collector(message)
 
-                # pylint: disable=bare-except
+        # pylint: disable=bare-except
         except:
             exc = sys.exc_info()
-            logger.err('Unable to parse message: %s\n%s',
-                       str(exc[1]), str(payload))
+            log.err('Unable to parse message: %s\n%s', str(exc[1]),
+                    str(message))
 
         finally:
             # close the socket (if open)
@@ -142,14 +137,21 @@ class SnapEmitter(object):
             skip_tag_key = host_name[1:]
             host_name = tags[skip_tag_key]
 
-        tag_str = (SnapEmitter.build_tag_string(tags, skip_tag_key) +
-                   SnapEmitter.build_tag_string(self.point_tags, skip_tag_key))
-        line = ('%s %s %d source="%s"%s' %
-                (name, value, long(tstamp), host_name, tag_str))
+        tag_str = (Emitter.build_tag_string(tags, skip_tag_key) +
+                   Emitter.build_tag_string(self.point_tags, skip_tag_key))
+        line = ('%s %s %d source="%s"%s' % (name, value, long(tstamp),
+                                            host_name, tag_str))
         if self.proxy_dry_run or not self.sock:
             print line
         else:
-            self.sock.sendall('%s\n' % (line))
+            print '\n'
+            print 'Metrics:\n'
+            print line
+            print 'End\n'
+            print '\n'
+            # FIXME remove above lines created for development
+            # un-comment the following line
+            # self.sock.sendall('%s\n' % (line))
 
     @staticmethod
     def build_tag_string(tags, skip_tag_key):
@@ -157,11 +159,22 @@ class SnapEmitter(object):
         Builds a string of tag_key=tag_value ... for all tags in the tags
         dictionary provided.  If tags is None or empty, an empty string is
         returned.
-        Args:
-            tags            (dict): dictionary of tag key => tag value
-            skip_tag_key    (str): skip tag named this (None to not skip any)
+        Arguments:
+        tags - dictionary of tag key => tag value
+        skip_tag_key - skip tag named this (None to not skip any)
         """
-        pass
+
+        if not tags:
+            return ''
+
+        tag_str = ''
+        for tag_key, tag_value in tags.iteritems():
+            if not isinstance(tag_value,
+                              basestring) or tag_key == skip_tag_key:
+                continue
+            tag_str = tag_str + ' "%s"="%s"' % (tag_key, tag_value)
+
+        return tag_str
 
     @staticmethod
     def convert_key_to_dotted_name(key):
@@ -195,6 +208,7 @@ class SnapEmitter(object):
         (2):  value (assuming float for all values)
         (3):  tags (including host); all tags are converted to tags except
               hostname which is sent on its own as the source for the point.
+
         In addition to the metric array elements, all top level elements that
         begin with : cpu* mem* are captured and the value is sent.  These items
         are in the form of:
@@ -212,10 +226,12 @@ class SnapEmitter(object):
         upper case letters and adding a dot between to form a metric name like
         this example: "cpuGuest" => "cpu.guest" The value comes from the JSON
         key's value.
+
         Other metrics retrieved:
            - ioStats group.
            - processes count
            - system.load.*
+
         Arguments:
         message - a JSON object representing the message sent to datadoghq
         """
@@ -226,21 +242,20 @@ class SnapEmitter(object):
         # cpu* mem*
         for key, value in message.iteritems():
             if key[0:3] == 'cpu' or key[0:3] == 'mem':
-                dotted = 'system.' + SnapEmitter.convert_key_to_dotted_name(key)
+                dotted = 'system.' + Emitter.convert_key_to_dotted_name(key)
                 self.send_metric(dotted, value, tstamp, host_name, None)
 
         # metrics
         metrics = message['metrics']
         for metric in metrics:
-            self.send_metric(
-                metric[0], metric[2], long(metric[1]), '=hostname', metric[3])
+            self.send_metric(metric[0], metric[2], long(metric[1]),
+                             '=hostname', metric[3])
 
         # iostats
         iostats = message['ioStats']
         for disk_name, stats in iostats.iteritems():
             for name, value in stats.iteritems():
-                name = (name.replace('%', '')
-                        .replace('/', '_'))
+                name = (name.replace('%', '').replace('/', '_'))
 
                 metric_name = ('system.io.%s' % (name, ))
                 tags = {'disk': disk_name}
@@ -255,9 +270,10 @@ class SnapEmitter(object):
         self.send_metric(metric_name, value, tstamp, host_name, None)
 
         # system.load.*
-        load_metric_names = ['system.load.1', 'system.load.15', 'system.load.5',
-                             'system.load.norm.1', 'system.load.norm.15',
-                             'system.load.norm.5']
+        load_metric_names = [
+            'system.load.1', 'system.load.15', 'system.load.5',
+            'system.load.norm.1', 'system.load.norm.15', 'system.load.norm.5'
+        ]
         for metric_name in load_metric_names:
             if metric_name not in message:
                 continue
@@ -267,7 +283,7 @@ class SnapEmitter(object):
     def parse_meta_tags(self, message):
         """
         Parses the meta dict from the JSON message, looking for any existing
-        keys from the wf_meta_tags user configuration. Stores any as key
+        keys from the na_meta_tags user configuration. Stores any as key
         value pairs in an instance variable
         NOTE: these are only passed on the first request (or perhaps
         only periodically?).  If nothing is in the mta dictionary then
@@ -320,11 +336,7 @@ class SnapEmitter(object):
         """
         Removes any `[ ] "' characters from the input screen
         """
-        replace_map = {
-            '[': '',
-            ']': '',
-            '"': ''
-        }
+        replace_map = {'[': '', ']': '', '"': ''}
         for search, replace in replace_map.iteritems():
             s = s.replace(search, replace)
         return s
