@@ -84,15 +84,18 @@ class Emitter(object):
                 self.parse_dogstatsd(message)
 
             else:
-                self.parse_host_tags(message)
-                self.parse_meta_tags(message)
-                self.parse_collector(message)
+                # self.parse_host_tags(message)
+                # self.parse_meta_tags(message)
+                # FIXME Unable to parse message: 'metrics'
+                # list indices must be integers, not str
+                # self.parse_collector(message)
+                pass
 
-        # pylint: disable=bare-except
         except:
             exc = sys.exc_info()
             log.error('Unable to parse message: %s\n%s', str(exc[1]),
-                    str(message))
+                      str(message))
+            # log.error(json.dumps(message, indent = 4))
 
         finally:
             # close the socket (if open)
@@ -109,20 +112,22 @@ class Emitter(object):
 
         metrics = message['series']
         for metric in metrics:
-            name = metric['metric']
-            jtags = metric['tags']
-            tags = {}
-            if jtags:
-                for tag in jtags:
-                    parts = tag.split(':')
-                    tags[parts[0]] = parts[1]
+            metric['time_stamp'] = metric['points'][0][0]
+            metric['value'] = metric['points'][0][1]
+            metric.pop('points', None)
+            self.send_metric_to_socket(metric)
 
-            host_name = metric['host']
-            jpoints = metric['points']
-            for point in jpoints:
-                tstamp = point[0]
-                value = point[1]
-                self.send_metric(name, value, tstamp, host_name, tags)
+    # pylint: disable=too-many-arguments
+    def send_metric_to_socket(self, metric):
+        """
+        Sends a metric to the proxy
+        """
+
+        line = ('%s' % (metric))
+        if self.proxy_dry_run or not self.sock:
+            print line
+        else:
+            self.sock.sendall('%s\n' % (line))
 
     # pylint: disable=too-many-arguments
     def send_metric(self, name, value, tstamp, host_name, tags):
