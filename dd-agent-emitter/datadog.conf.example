@@ -1,0 +1,10 @@
+[Main]
+dd_url = https://app.datadoghq.com
+api_key = XXXXXXXXXXXXXXX 
+gce_updated_hostname = yes
+custom_emitters = /etc/datadog/emitters/node_agent_emitter.py:Emitter
+non_local_traffic = yes
+service_discovery_backend = docker
+log_to_syslog = no
+na_host = node-agent:8888
+na_dry_run = yes
