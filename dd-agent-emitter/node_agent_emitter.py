@@ -91,7 +91,7 @@ class Emitter(object):
         # pylint: disable=bare-except
         except:
             exc = sys.exc_info()
-            log.err('Unable to parse message: %s\n%s', str(exc[1]),
+            log.error('Unable to parse message: %s\n%s', str(exc[1]),
                     str(message))
 
         finally:
