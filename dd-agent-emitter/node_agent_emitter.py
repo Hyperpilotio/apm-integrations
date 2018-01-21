@@ -33,6 +33,7 @@ class Emitter(object):
         self.point_tags = {}
         self.source_tags = []
         self.meta_tags = []
+        self.logger = None
 
     # pylint: disable=too-many-branches
     def __call__(self, message, log, agent_config):
@@ -59,8 +60,9 @@ class Emitter(object):
         self.proxy_dry_run = ('na_dry_run' in agent_config
                               and (agent_config['na_dry_run'] == 'yes'
                                    or agent_config['na_dry_run'] == 'true'))
-
-        self.logger.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
+        log.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
+        if not self.logger:
+            self.logger = log
 
         if 'na_meta_tags' in agent_config:
             self.meta_tags = [
@@ -84,7 +86,6 @@ class Emitter(object):
                 self.sock = None
 
             # parse the message
-            # FIXME
             if 'series' in message:
                 self.parse_dogstatsd(message)
             elif isinstance(message, list):
@@ -116,8 +117,7 @@ class Emitter(object):
             metric['time_stamp'] = metric['points'][0][0]
             metric['value'] = metric['points'][0][1]
             metric.pop('points', None)
-            # FIXME
-            # self.send_metric_to_socket(metric)
+            self.send_metric(metric)
 
     # pylint: disable=too-many-arguments
     def send_metric(self, metric):
@@ -127,7 +127,11 @@ class Emitter(object):
 
         line = ('%s' % (metric))
         if self.proxy_dry_run or not self.sock:
+<<<<<<< HEAD
             self.logger.info(line)
+=======
+            self.logger.debug(line)
+>>>>>>> Initiate a logger
         else:
             self.sock.sendall('%s\n' % (line))
 
