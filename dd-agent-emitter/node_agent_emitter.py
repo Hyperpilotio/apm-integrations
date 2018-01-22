@@ -236,7 +236,7 @@ class Emitter(object):
             if key[0:3] == 'cpu' or key[0:3] == 'mem':
                 dotted = 'system.' + Emitter.convert_key_to_dotted_name(key)
                 self.send_metric({
-                    'source_type_name': 'System',
+                    # 'source_type_name': 'System',
                     'metric': dotted,
                     'value': value,
                     'time_stamp': tstamp,
