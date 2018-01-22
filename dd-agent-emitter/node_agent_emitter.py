@@ -27,6 +27,7 @@ class Emitter(object):
     """
 
     def __init__(self):
+        self.logger = None
         self.proxy_dry_run = True
         self.sock = None
         self.point_tags = {}
@@ -42,10 +43,12 @@ class Emitter(object):
         log - the log object
         agent_config - the agent configuration object
         """
+        if log:
+            self.logger = log
 
         # configuration
         if 'na_host' not in agent_config:
-            log.error(
+            self.logger.error(
                 'Agent config missing na_host (the Node agent proxy host)')
             return
         proxy_host = agent_config['na_host']
@@ -56,8 +59,8 @@ class Emitter(object):
         self.proxy_dry_run = ('na_dry_run' in agent_config
                               and (agent_config['na_dry_run'] == 'yes'
                                    or agent_config['na_dry_run'] == 'true'))
-        if log:
-            log.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
+
+        self.logger.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
 
         if 'na_meta_tags' in agent_config:
             self.meta_tags = [
@@ -75,10 +78,7 @@ class Emitter(object):
                     err_str = (
                         'Node agent Emitter: Unable to connect %s:%d: %s' %
                         (proxy_host, proxy_port, str(sock_err)))
-                    if log:
-                        log.error(err_str)
-                    else:
-                        print err_str
+                    self.logge.error(err_str)
                     return
             else:
                 self.sock = None
@@ -95,7 +95,7 @@ class Emitter(object):
                 self.parse_collector(message)
         except:
             exc = sys.exc_info()
-            log.error('Unable to parse message: %s\n%s', str(exc[1]),
+            self.logger.error('Unable to parse message: %s\n%s', str(exc[1]),
                       str(message))
 
         finally:
@@ -127,7 +127,7 @@ class Emitter(object):
 
         line = ('%s' % (metric))
         if self.proxy_dry_run or not self.sock:
-            print line
+            self.logger.info(line)
         else:
             self.sock.sendall('%s\n' % (line))
 
