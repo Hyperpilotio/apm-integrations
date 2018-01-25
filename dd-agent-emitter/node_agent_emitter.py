@@ -44,7 +44,7 @@ class Emitter(object):
         log - the log object
         agent_config - the agent configuration object
         """
-        if log:
+        if not self.logger and log:
             self.logger = log
 
         # configuration
@@ -56,19 +56,18 @@ class Emitter(object):
         if 'na_port' in agent_config:
             proxy_port = int(agent_config['na_port'])
         else:
-            proxy_port = 2878
+            proxy_port = 8080
         self.proxy_dry_run = ('na_dry_run' in agent_config
                               and (agent_config['na_dry_run'] == 'yes'
                                    or agent_config['na_dry_run'] == 'true'))
-        log.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
-        if not self.logger:
-            self.logger = log
+        self.logger.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
 
         if 'na_meta_tags' in agent_config:
             self.meta_tags = [
                 tag.strip() for tag in agent_config['na_meta_tags'].split(',')
             ]
 
+        self.logger.debug('Node Agent Emitter %s:%d ', proxy_host, proxy_port)
         try:
             # connect to the proxy
             if not self.proxy_dry_run:
@@ -80,7 +79,7 @@ class Emitter(object):
                     err_str = (
                         'Node agent Emitter: Unable to connect %s:%d: %s' %
                         (proxy_host, proxy_port, str(sock_err)))
-                    self.logge.error(err_str)
+                    self.logger.error(err_str)
                     return
             else:
                 self.sock = None
@@ -97,7 +96,7 @@ class Emitter(object):
         except:
             exc = sys.exc_info()
             self.logger.error('Unable to parse message: %s\n%s', str(exc[1]),
-                      str(message))
+                              str(message))
 
         finally:
             # close the socket (if open)
@@ -115,8 +114,14 @@ class Emitter(object):
         metrics = message['series']
         for metric in metrics:
             metric['time_stamp'] = metric['points'][0][0]
-            metric['value'] = metric['points'][0][1]
+            metric['value'] = str(metric['points'][0][1])
+            metric.setdefault('tags', [])
+            if metric.get('source_type_name'):
+                metric['tags'].append(
+                    ('source_type_name:%s' % (metric.get('source_type_name'))))
+
             metric.pop('points', None)
+            metric.pop('source_type_name', None)
             self.send_metric(metric)
 
     # pylint: disable=too-many-arguments
@@ -127,36 +132,9 @@ class Emitter(object):
 
         line = ('%s' % (metric))
         if self.proxy_dry_run or not self.sock:
-<<<<<<< HEAD
-            self.logger.info(line)
-=======
             self.logger.debug(line)
->>>>>>> Initiate a logger
         else:
             self.sock.sendall('%s\n' % (line))
-
-    @staticmethod
-    def build_tag_string(tags, skip_tag_key):
-        """
-        Builds a string of tag_key=tag_value ... for all tags in the tags
-        dictionary provided.  If tags is None or empty, an empty string is
-        returned.
-        Arguments:
-        tags - dictionary of tag key => tag value
-        skip_tag_key - skip tag named this (None to not skip any)
-        """
-
-        if not tags:
-            return ''
-
-        tag_str = ''
-        for tag_key, tag_value in tags.iteritems():
-            if not isinstance(tag_value,
-                              basestring) or tag_key == skip_tag_key:
-                continue
-            tag_str = tag_str + ' "%s"="%s"' % (tag_key, tag_value)
-
-        return tag_str
 
     @staticmethod
     def convert_key_to_dotted_name(key):
@@ -182,15 +160,17 @@ class Emitter(object):
     def parse_health_check(self, message):
         for health in message:
             health['metric'] = health['check']
-            health['value'] = health['status']
-            health['time_stamp'] = health['timestamp']
+            health['value'] = str(health['status'])
+            health['time_stamp'] = int(health['timestamp'])
             health['host'] = health['host_name']
+            health.setdefault('tags', [])
 
-            health.pop('check')
-            health.pop('status')
-            health.pop('timestamp')
-            health.pop('host_name')
-            health.pop('id')
+            health.pop('check', None)
+            health.pop('status', None)
+            health.pop('timestamp', None)
+            health.pop('host_name', None)
+            health.pop('id', None)
+
             self.send_metric(health)
 
     # pylint: disable=too-many-locals
@@ -232,7 +212,7 @@ class Emitter(object):
         message - a JSON object representing the message sent to datadoghq
         """
 
-        tstamp = long(message['collection_timestamp'])
+        tstamp = int(long(message['collection_timestamp']))
         host_name = message['internalHostname']
 
         # cpu* mem*
@@ -240,11 +220,11 @@ class Emitter(object):
             if key[0:3] == 'cpu' or key[0:3] == 'mem':
                 dotted = 'system.' + Emitter.convert_key_to_dotted_name(key)
                 self.send_metric({
-                    # 'source_type_name': 'System',
                     'metric': dotted,
-                    'value': value,
+                    'value': str(value),
                     'time_stamp': tstamp,
-                    'host': host_name
+                    'host': host_name,
+                    'tags': []
                 })
 
         # iostats
@@ -255,12 +235,10 @@ class Emitter(object):
 
                 self.send_metric({
                     'metric': ('system.io.%s' % (name)),
-                    'value': value,
+                    'value': str(value),
                     'time_stamp': tstamp,
                     'host': host_name,
-                    'tags': {
-                        'disk': disk_name
-                    }
+                    'tags': [('disk:%s' % (disk_name))]
                 })
 
         # count processes
@@ -269,9 +247,10 @@ class Emitter(object):
         host_name = processes['host']
         self.send_metric({
             'metric': 'system.processes.count',
-            'value': len(processes['processes']),
+            'value': str(len(processes['processes'])),
             'time_stamp': tstamp,
-            'host': host_name
+            'host': host_name,
+            'tags': []
         })
 
         # system.load.*
@@ -285,9 +264,10 @@ class Emitter(object):
 
             self.send_metric({
                 'metric': metric_name,
-                'value': message[metric_name],
+                'value': str(message[metric_name]),
                 'time_stamp': tstamp,
-                'host': host_name
+                'host': host_name,
+                'tags': []
             })
 
     def parse_meta_tags(self, message):
