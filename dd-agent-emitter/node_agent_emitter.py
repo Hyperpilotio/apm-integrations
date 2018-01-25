@@ -123,7 +123,7 @@ class Emitter(object):
             if metric.get('type') and metric.get('type') is not None:
                 d['type'] = metric.get('type')
             if metric.get('interval') and metric.get('interval') is not None:
-                d['interval'] = metric.get('interval')
+                d['interval'] = str(metric.get('interval'))
 
             if metric.get('device_name') and metric.get('device_name') is not None:
                 d['device_name'] = metric.get('device_name')
