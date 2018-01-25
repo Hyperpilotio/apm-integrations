@@ -77,8 +77,8 @@ class Emitter(object):
                     self.sock.connect((proxy_host, proxy_port))
                 except socket.error as sock_err:
                     err_str = (
-                        'Node agent Emitter: Unable to connect %s:%d: %s' %
-                        (proxy_host, proxy_port, str(sock_err)))
+                            'Node agent Emitter: Unable to connect %s:%d: %s' %
+                            (proxy_host, proxy_port, str(sock_err)))
                     self.logger.error(err_str)
                     return
             else:
@@ -113,15 +113,32 @@ class Emitter(object):
 
         metrics = message['series']
         for metric in metrics:
-            metric['time_stamp'] = metric['points'][0][0]
+            metric['time_stamp'] = int(metric['points'][0][0])
             metric['value'] = str(metric['points'][0][1])
             metric.setdefault('tags', [])
-            if metric.get('source_type_name'):
-                metric['tags'].append(
-                    ('source_type_name:%s' % (metric.get('source_type_name'))))
+            t = metric['tags']
+            d = {}
+            if metric.get('source_type_name') and metric.get('source_type_name') is not None:
+                d['source_type_name'] = metric.get('source_type_name')
+            if metric.get('type') and metric.get('type') is not None:
+                d['type'] = metric.get('type')
+            if metric.get('interval') and metric.get('interval') is not None:
+                d['interval'] = metric.get('interval')
 
-            metric.pop('points', None)
+            if metric.get('device_name') and metric.get('device_name') is not None:
+                d['device_name'] = metric.get('device_name')
+            if t is not None:
+                for x in t:
+                    d[x.split(":")[0]] = x.split(":")[1]
+            metric['tags'] = d
+
             metric.pop('source_type_name', None)
+            metric.pop('device_name', None)
+            metric.pop('interval', None)
+            metric.pop('type', None)
+            metric.pop('points', None)
+            if len(d) == 0:
+                metric.pop('tags')
             self.send_metric(metric)
 
     # pylint: disable=too-many-arguments
@@ -171,6 +188,13 @@ class Emitter(object):
             health.pop('host_name', None)
             health.pop('id', None)
 
+            t = health['tags']
+            d = {}
+            for x in t:
+                d[x.split(":")[0]] = x.split(":")[1]
+            health['tags'] = d
+            if len(d) == 0:
+                health.pop('tags')
             self.send_metric(health)
 
     # pylint: disable=too-many-locals
@@ -224,7 +248,6 @@ class Emitter(object):
                     'value': str(value),
                     'time_stamp': tstamp,
                     'host': host_name,
-                    'tags': []
                 })
 
         # iostats
@@ -238,7 +261,9 @@ class Emitter(object):
                     'value': str(value),
                     'time_stamp': tstamp,
                     'host': host_name,
-                    'tags': [('disk:%s' % (disk_name))]
+                    'tags': {
+                        'disk': disk_name
+                    }
                 })
 
         # count processes
@@ -250,7 +275,6 @@ class Emitter(object):
             'value': str(len(processes['processes'])),
             'time_stamp': tstamp,
             'host': host_name,
-            'tags': []
         })
 
         # system.load.*
@@ -267,7 +291,6 @@ class Emitter(object):
                 'value': str(message[metric_name]),
                 'time_stamp': tstamp,
                 'host': host_name,
-                'tags': []
             })
 
     def parse_meta_tags(self, message):
